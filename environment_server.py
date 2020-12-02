@@ -1,4 +1,4 @@
-from socket import socket, AF_INET, SOCK_STREAM
+from socket import socket, AF_INET, SOCK_STREAM, SHUT_RDWR
 import struct
 import json
 from io import BytesIO
@@ -10,7 +10,6 @@ server_port = 11000
 
 
 def forward_data(fromsocket: socket, tosocket: socket):
-    i = 1000
     try:
         while True:
             data = fromsocket.recv(4096)
@@ -26,7 +25,7 @@ def forward_data(fromsocket: socket, tosocket: socket):
         tosocket.close()
 
 
-def handle_client(client_socket: socket, addr, server_socket: socket):
+def handle_client(client_socket: socket, addr):
     buf = BytesIO()
 
     while buf.tell() < 4:
@@ -83,7 +82,10 @@ def handle_client(client_socket: socket, addr, server_socket: socket):
         Thread(target=forward_data, args=(env_socket, client_socket)).start()
         forward_data(client_socket, env_socket)
     finally:
+        env_server_socket.shutdown(SHUT_RDWR)
         env_server_socket.close()
+        client_socket.shutdown(SHUT_RDWR)
+        client_socket.close()
         print(f"Env on port {PORT_NUM} terminated.")
         if p is not None:
             p.kill()
@@ -97,7 +99,7 @@ def main():
     while True:
         client_socket, addr = server_socket.accept()
         print("Incoming connection from", addr)
-        Thread(target=handle_client, args=(client_socket, addr, server_socket)).start()
+        Thread(target=handle_client, args=(client_socket, addr)).start()
 
 
 if __name__ == "__main__":
