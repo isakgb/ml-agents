@@ -8,6 +8,8 @@ from typing import Dict, List, Optional, Tuple, Mapping as MappingType
 
 import mlagents_envs
 
+from mlagents_envs.environment_proxy import create_env_proxy
+
 from mlagents_envs.logging_util import get_logger
 from mlagents_envs.side_channel.side_channel import SideChannel
 from mlagents_envs.side_channel.side_channel_manager import SideChannelManager
@@ -183,6 +185,7 @@ class UnityEnvironment(BaseEnv):
         self._worker_id = worker_id
         self._side_channel_manager = SideChannelManager(side_channels)
         self._log_folder = log_folder
+        self._is_remote = bool(os.getenv("ENV_IS_REMOTE", False))
 
         # If the environment name is None, a new environment will not be launched
         # and the communicator will directly try to connect to an existing unity environment.
@@ -194,8 +197,14 @@ class UnityEnvironment(BaseEnv):
             )
         if file_name is not None:
             try:
-                self._proc1 = env_utils.launch_executable(
-                    file_name, self._executable_args()
+                if self._is_remote:
+                    print("executable args:", self._executable_args())
+                    print("Using remote environment")
+                    create_env_proxy(self._port, [file_name] + self._executable_args())
+                    pass
+                else:
+                    self._proc1 = env_utils.launch_executable(
+                        file_name, self._executable_args()
                 )
             except UnityEnvironmentException:
                 self._close(0)
@@ -242,6 +251,7 @@ class UnityEnvironment(BaseEnv):
 
     @staticmethod
     def _get_communicator(worker_id, base_port, timeout_wait):
+        print("Get communicator ran. Timeout_wait is", timeout_wait)
         return RpcCommunicator(worker_id, base_port, timeout_wait)
 
     def _executable_args(self) -> List[str]:

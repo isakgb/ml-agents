@@ -2,11 +2,14 @@ from socket import socket, AF_INET, SOCK_STREAM, SHUT_RDWR
 import struct
 import json
 from io import BytesIO
-from threading import Thread
+from threading import Thread, RLock
 from subprocess import Popen, DEVNULL
 
 
 server_port = 11000
+
+next_mlagents_port = 11001
+next_mlagents_port_lock = RLock()
 
 
 def forward_data(fromsocket: socket, tosocket: socket):
@@ -39,7 +42,7 @@ def handle_client(client_socket: socket, addr):
         client_socket.close()
         return
 
-    (json_string_length) = struct.unpack(">i", json_string_length_bytes)
+    (json_string_length,) = struct.unpack(">i", json_string_length_bytes)
     print("Json string length is", json_string_length)
     buf.seek(0)
     while buf.tell() < json_string_length:
@@ -57,11 +60,20 @@ def handle_client(client_socket: socket, addr):
     env = args[0]
     env_args = args[1:]
     print(f"Env is {env}, env-args is {env_args}")
-    PORT_NUM = 11001
+    # we need to override the -logFile
+    next_mlagents_port_lock.acquire()
+    global next_mlagents_port
+    PORT_NUM = next_mlagents_port
+    next_mlagents_port += 1
+    next_mlagents_port_lock.release()
+
     for i in range(len(env_args)):
         if env_args[i] == "--mlagents-port":
-            env_args[i+1] = PORT_NUM
+            env_args[i+1] = str(PORT_NUM)
             print("Overwrote port number")
+        if env_args[i] == "-logFile":
+            env_args[i+1] = "log.log"
+            print("Overwrote log filename")
 
 
     if "--mlagents-port" not in env_args:
@@ -77,7 +89,9 @@ def handle_client(client_socket: socket, addr):
     print(f"Listening for {path} on port {PORT_NUM}")
     p = None
     try:
-        p = Popen([env] + env_args, stdout=DEVNULL)
+        p_open_args = [path] + env_args
+        print("Popen args", p_open_args)
+        p = Popen(p_open_args, stdout=DEVNULL)
         env_socket, addr = env_server_socket.accept()
         Thread(target=forward_data, args=(env_socket, client_socket)).start()
         forward_data(client_socket, env_socket)
@@ -94,6 +108,7 @@ def handle_client(client_socket: socket, addr):
 def main():
     server_socket = socket(AF_INET, SOCK_STREAM)
     server_socket.bind(("0.0.0.0", server_port))
+    print(f"Environment server listening on port {server_port}")
     server_socket.listen()
 
     while True:
